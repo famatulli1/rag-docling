@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Local RAG (Retrieval Augmented Generation) system with two FastAPI services using Docling + LangChain for document processing, ChromaDB for vector storage, and Ollama for LLM inference.
+Local RAG (Retrieval Augmented Generation) system with two FastAPI services using Docling + LangChain for document processing, ChromaDB for vector storage, and a custom OpenAI-compatible API for LLM inference.
 
 ## Architecture
 
@@ -15,15 +15,15 @@ Local RAG (Retrieval Augmented Generation) system with two FastAPI services usin
 **Network Isolation:**
 - `public` network: Web app accessible from host
 - `private` network: Internal services (ChromaDB, RAG server communication)
-- Ollama runs on host machine at `http://host.docker.internal:11434`
+- Custom OpenAI-compatible API at `https://apigpt.mynumih.fr`
 
 **Document Processing Flow:**
 1. Documents uploaded → `rag-server` `/upload` endpoint
 2. Docling parses (PDF/DOCX/PPTX/XLSX/HTML) → extracts text, tables, layout
 3. HybridChunker splits with token-aware semantic boundaries
-4. LangChain OllamaEmbeddings generates vectors (nomic-embed-text, 768-dim)
+4. LangChain OpenAIEmbeddings generates vectors (nomic-embed-text, 768-dim)
 5. Stored in ChromaDB via LangChain Chroma wrapper
-6. Query → retrieval → LLM (llama3.2) generates answer
+6. Query → retrieval → LLM (Chocolatine-2-14B) generates answer via OpenAI-compatible API
 
 **Key Implementation Pattern:**
 - Documents stored as chunks with `document_id` metadata
@@ -35,7 +35,7 @@ Local RAG (Retrieval Augmented Generation) system with two FastAPI services usin
 ### Development
 
 ```bash
-# Start services (requires Ollama running on host)
+# Start services (requires custom OpenAI API accessible at https://apigpt.mynumih.fr)
 docker compose up -d
 
 # Build after dependency changes
@@ -91,9 +91,9 @@ uv sync --upgrade
 - HybridChunker tokenizer: `sentence-transformers/all-MiniLM-L6-v2` (compatible with nomic-embed-text)
 
 **Embeddings** (`services/rag_server/core_logic/embeddings.py`):
-- LangChain `OllamaEmbeddings` wrapper (not ChromaDB's native function)
+- LangChain `OpenAIEmbeddings` wrapper (not ChromaDB's native function)
 - Model: `nomic-embed-text`
-- URL from `OLLAMA_URL` env var
+- URL from `OPENAI_BASE_URL` env var
 
 **Vector Store** (`services/rag_server/core_logic/chroma_manager.py`):
 - Uses `langchain-chroma.Chroma` wrapper
@@ -106,7 +106,8 @@ uv sync --upgrade
 
 **LLM Prompt Construction** (`services/rag_server/core_logic/llm_handler.py`):
 - Four configurable strategies via `PROMPT_STRATEGY` env var
-- All use XML structure (optimal for Llama 3.2)
+- Two languages supported via `RESPONSE_LANGUAGE` env var (fr/en)
+- All use XML structure (optimal for instruction-tuned models)
 - Designed to reduce hallucination and improve context grounding
 
 **Available Strategies:**
@@ -135,14 +136,21 @@ uv sync --upgrade
 ```yaml
 # In docker-compose.yml
 environment:
-  - PROMPT_STRATEGY=balanced  # Change to: fast, balanced, precise, comprehensive
+  - PROMPT_STRATEGY=balanced  # Options: fast, balanced, precise, comprehensive
+  - RESPONSE_LANGUAGE=fr  # Options: fr, en
 ```
+
+**Language Support:**
+- **fr (français)** : Prompts et réponses en français
+- **en (english)** : Prompts and responses in English
+- Each strategy has dedicated prompts for both languages
 
 **Best Practices:**
 - Start with `balanced` and adjust based on observed hallucination rates
 - Use `fast` for high-volume, low-stakes queries
 - Use `comprehensive` for technical documentation or legal documents
 - Monitor response quality and adjust strategy accordingly
+- Set `RESPONSE_LANGUAGE` to match your document language for best results
 
 ### Docker Build Issues
 
@@ -161,13 +169,20 @@ RUN uv sync --extra-index-url https://download.pytorch.org/whl/cpu --index-strat
 
 **Prerequisites:**
 - Docker & Docker Compose v2+
-- Ollama running on host with models:
-  - `ollama pull llama3.2`
-  - `ollama pull nomic-embed-text`
+- Custom OpenAI-compatible API accessible at `https://apigpt.mynumih.fr` with:
+  - LLM model: `jpacifico/Chocolatine-2-14B-Instruct-v2.0.3`
+  - Embeddings model: `nomic-embed-text`
 
 **Environment Variables:**
 - Web App: `RAG_SERVER_URL=http://rag-server:8001`
-- RAG Server: `CHROMADB_URL=http://chromadb:8000`, `OLLAMA_URL=http://host.docker.internal:11434`, `LLM_MODEL=llama3.2`
+- RAG Server:
+  - `CHROMADB_URL=http://chromadb:8000`
+  - `OPENAI_BASE_URL=https://apigpt.mynumih.fr/v1`
+  - `OLLAMA_URL=http://host.docker.internal:11434` (for embeddings)
+  - `LLM_MODEL=jpacifico/Chocolatine-2-14B-Instruct-v2.0.3`
+  - `EMBEDDING_MODEL=nomic-embed-text`
+  - `PROMPT_STRATEGY=balanced` (fast/balanced/precise/comprehensive)
+  - `RESPONSE_LANGUAGE=fr` (fr/en)
 
 ### Testing Patterns
 
@@ -177,10 +192,10 @@ RUN uv sync --extra-index-url https://download.pytorch.org/whl/cpu --index-strat
 - Chroma vectorstore mocked with `._collection` attribute for underlying ChromaDB access
 
 **Test Structure:**
-- `test_embeddings.py`: LangChain OllamaEmbeddings initialization
+- `test_embeddings.py`: LangChain OpenAIEmbeddings initialization
 - `test_document_processing.py`: Docling parsing + HybridChunker
 - `test_chroma_collection.py`: LangChain Chroma wrapper operations
-- `test_llm_integration.py`: Ollama LLM responses
+- `test_llm_integration.py`: OpenAI-compatible API LLM responses
 - `test_document_api.py`, `test_upload_api.py`: FastAPI endpoints
 
 ## API Endpoints
@@ -199,15 +214,15 @@ RUN uv sync --extra-index-url https://download.pytorch.org/whl/cpu --index-strat
 - `services/rag_server/core_logic/rag_pipeline.py`: Main RAG query flow
 - `services/rag_server/core_logic/document_processor.py`: Docling + HybridChunker
 - `services/rag_server/core_logic/chroma_manager.py`: LangChain Chroma wrapper
-- `services/rag_server/core_logic/embeddings.py`: LangChain OllamaEmbeddings
+- `services/rag_server/core_logic/embeddings.py`: LangChain OpenAIEmbeddings
 - `services/rag_server/main.py`: FastAPI endpoints
 - `docker-compose.yml`: Service orchestration with network isolation
 
 ## Common Issues
 
-**Ollama not accessible:** Check `host.docker.internal` resolves correctly. Verify with:
+**OpenAI API not accessible:** Verify the API is running and accessible at `https://apigpt.mynumih.fr`. Check with:
 ```bash
-docker compose exec rag-server curl http://host.docker.internal:11434/api/tags
+curl https://apigpt.mynumih.fr/v1/models
 ```
 
 **ChromaDB connection fails:** ChromaDB on private network only. RAG server must be on same network.
@@ -215,3 +230,5 @@ docker compose exec rag-server curl http://host.docker.internal:11434/api/tags
 **Docker build fails with certifi error:** Ensure `--index-strategy unsafe-best-match` is in Dockerfile RUN command.
 
 **Tests fail with ModuleNotFoundError:** Use `.venv/bin/pytest` directly instead of `uv run pytest` to avoid path issues.
+
+**Embeddings model not found:** Ensure `nomic-embed-text` is available in your OpenAI-compatible API. If not, update `EMBEDDING_MODEL` env var to an available model.

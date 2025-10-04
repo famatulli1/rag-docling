@@ -5,6 +5,7 @@ from core_logic.env_config import get_required_env
 logger = logging.getLogger(__name__)
 
 def get_embedding_function():
+    # Use Ollama for embeddings (local)
     ollama_url = get_required_env("OLLAMA_URL")
     model_name = get_required_env("EMBEDDING_MODEL")
 

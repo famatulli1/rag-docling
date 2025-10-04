@@ -15,8 +15,6 @@ services:
       - private
     volumes:
       - ./data/indexed_documents:/app/documents:ro
-    secrets:
-      - ollama_config
 
   # RAG Server - Core processing service
   rag-server:
@@ -25,10 +23,12 @@ services:
       dockerfile: ./services/rag_server/Dockerfile
     environment:
       - CHROMADB_URL=http://chromadb:8000
+      - OPENAI_BASE_URL=https://apigpt.mynumih.fr/v1
       - OLLAMA_URL=http://host.docker.internal:11434
       - EMBEDDING_MODEL=nomic-embed-text
-      - LLM_MODEL=llama3.2:latest
-      - PROMPT_STRATEGY=comprehensive  # Options: fast, balanced, precise, comprehensive
+      - LLM_MODEL=jpacifico/Chocolatine-2-14B-Instruct-v2.0.3
+      - PROMPT_STRATEGY=balanced  # Options: fast, balanced, precise, comprehensive
+      - RESPONSE_LANGUAGE=fr  # Options: fr, en
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -38,8 +38,6 @@ services:
       - public
     volumes:
       - ./data/indexed_documents:/app/documents
-    secrets:
-      - ollama_config
 
   # ChromaDB Vector Database (private network only)
   chromadb:
@@ -66,7 +64,4 @@ volumes:
   chroma_db_data:
     driver: local
 
-# Secrets management
-secrets:
-  ollama_config:
-    file: ./secrets/ollama_config.env 
+ 

@@ -1,5 +1,5 @@
 from typing import List
-import ollama
+from openai import OpenAI
 from core_logic.env_config import get_required_env
 
 def get_llm_model():
@@ -7,6 +7,20 @@ def get_llm_model():
 
 def get_prompt_strategy():
     return get_required_env("PROMPT_STRATEGY").lower()
+
+def get_response_language():
+    return get_required_env("RESPONSE_LANGUAGE").lower()
+
+def get_openai_client():
+    """Create OpenAI client configured for custom API"""
+    base_url = get_required_env("OPENAI_BASE_URL")
+    # API key is optional for some custom deployments, use dummy value if not required
+    api_key = "not-needed"  # Your API doesn't require authentication
+
+    return OpenAI(
+        base_url=base_url,
+        api_key=api_key
+    )
 
 def construct_prompt_fast(query: str, context_docs: List[str]) -> str:
     """Fast strategy: minimal instructions for quick responses with simple documents"""
@@ -121,25 +135,150 @@ Let's work through this step by step:"""
 
     return prompt
 
-def construct_prompt(query: str, context_docs: List[str]) -> str:
-    """Route to appropriate prompt strategy based on config"""
-    strategy = get_prompt_strategy()
+# French prompts
+def construct_prompt_fast_fr(query: str, context_docs: List[str]) -> str:
+    """Stratégie rapide : instructions minimales pour des réponses rapides"""
+    context_xml = "\n\n".join(
+        f"<contexte>{doc}</contexte>"
+        for doc in context_docs
+    )
 
-    if strategy == "fast":
-        return construct_prompt_fast(query, context_docs)
-    elif strategy == "precise":
-        return construct_prompt_precise(query, context_docs)
-    elif strategy == "comprehensive":
-        return construct_prompt_comprehensive(query, context_docs)
-    else:  # balanced (default)
-        return construct_prompt_balanced(query, context_docs)
+    prompt = f"""Réponds à la question en utilisant le contexte fourni. Si la réponse n'est pas dans le contexte, dis "Je ne sais pas."
+
+<contextes>
+{context_xml}
+</contextes>
+
+Question : {query}
+
+Réponse :"""
+
+    return prompt
+
+def construct_prompt_balanced_fr(query: str, context_docs: List[str]) -> str:
+    """Stratégie équilibrée : bon équilibre entre précision et vitesse avec mesures anti-hallucination"""
+    context_xml = "\n\n".join(
+        f"<contexte id='{i}'>\n{doc}\n</contexte>"
+        for i, doc in enumerate(context_docs, 1)
+    )
+
+    prompt = f"""Réponds à la question en utilisant UNIQUEMENT les informations du contexte fourni ci-dessous.
+
+Règles :
+- Utilise UNIQUEMENT le contexte fourni pour répondre
+- Si la réponse n'est pas dans le contexte, réponds : "Je n'ai pas assez d'informations pour répondre à cette question."
+- N'utilise pas de connaissances antérieures et ne fais pas d'hypothèses
+- Sois concis et précis
+
+<contextes>
+{context_xml}
+</contextes>
+
+<question>
+{query}
+</question>
+
+Réponse :"""
+
+    return prompt
+
+def construct_prompt_precise_fr(query: str, context_docs: List[str]) -> str:
+    """Stratégie précise : forte anti-hallucination avec raisonnement étape par étape"""
+    context_xml = "\n\n".join(
+        f"<contexte id='{i}'>\n{doc}\n</contexte>"
+        for i, doc in enumerate(context_docs, 1)
+    )
+
+    prompt = f"""Réponds à la question en utilisant UNIQUEMENT le contexte fourni ci-dessous.
+
+<instruction>
+1. Lis attentivement les documents de contexte
+2. Si la réponse se trouve dans le contexte, fournis une réponse claire et mentionne quel(s) ID(s) de contexte tu as utilisé
+3. Si la réponse n'est PAS dans le contexte, réponds EXACTEMENT : "Je n'ai pas assez d'informations dans le contexte fourni pour répondre à cette question."
+4. N'utilise PAS tes connaissances antérieures et ne fais pas d'hypothèses au-delà de ce qui est explicitement indiqué
+5. En cas de doute, préfère dire que tu ne sais pas
+</instruction>
+
+<contextes>
+{context_xml}
+</contextes>
+
+<question>
+{query}
+</question>
+
+Réponse :"""
+
+    return prompt
+
+def construct_prompt_comprehensive_fr(query: str, context_docs: List[str]) -> str:
+    """Stratégie complète : précision maximale avec chaîne de pensée et auto-critique"""
+    context_xml = "\n\n".join(
+        f"<contexte id='{i}'>\n{doc}\n</contexte>"
+        for i, doc in enumerate(context_docs, 1)
+    )
+
+    prompt = f"""Réponds à la question en utilisant UNIQUEMENT le contexte fourni ci-dessous.
+
+<instruction>
+Suis ce processus étape par étape :
+
+Étape 1 : Identifie quels documents de contexte contiennent des informations pertinentes pour la question
+Étape 2 : Extrais les faits ou déclarations spécifiques liés à la question
+Étape 3 : Formule ta réponse en utilisant UNIQUEMENT les informations extraites
+Étape 4 : Vérifie que ta réponse ne contient pas d'informations absentes du contexte
+Étape 5 : Cite quel(s) ID(s) de contexte tu as utilisé
+
+Si à n'importe quelle étape tu trouves des informations insuffisantes dans le contexte :
+- Réponds EXACTEMENT : "Je n'ai pas assez d'informations dans le contexte fourni pour répondre à cette question."
+- N'utilise PAS tes connaissances antérieures
+- Ne fais PAS d'hypothèses ou d'inférences au-delà de ce qui est explicitement indiqué
+
+En cas de doute ou d'ambiguïté, préfère toujours dire que tu ne sais pas.
+</instruction>
+
+<contextes>
+{context_xml}
+</contextes>
+
+<question>
+{query}
+</question>
+
+Travaillons étape par étape :"""
+
+    return prompt
+
+def construct_prompt(query: str, context_docs: List[str]) -> str:
+    """Route to appropriate prompt strategy based on config and language"""
+    strategy = get_prompt_strategy()
+    language = get_response_language()
+
+    # French prompts
+    if language == "fr":
+        if strategy == "fast":
+            return construct_prompt_fast_fr(query, context_docs)
+        elif strategy == "precise":
+            return construct_prompt_precise_fr(query, context_docs)
+        elif strategy == "comprehensive":
+            return construct_prompt_comprehensive_fr(query, context_docs)
+        else:  # balanced (default)
+            return construct_prompt_balanced_fr(query, context_docs)
+
+    # English prompts (default)
+    else:
+        if strategy == "fast":
+            return construct_prompt_fast(query, context_docs)
+        elif strategy == "precise":
+            return construct_prompt_precise(query, context_docs)
+        elif strategy == "comprehensive":
+            return construct_prompt_comprehensive(query, context_docs)
+        else:  # balanced (default)
+            return construct_prompt_balanced(query, context_docs)
 
 def generate_response(query: str, context: str) -> str:
-    ollama_url = get_required_env("OLLAMA_URL")
+    client = get_openai_client()
     model = get_llm_model()
-
-    # Create Ollama client
-    client = ollama.Client(host=ollama_url)
 
     # Construct prompt with context
     if context:
@@ -147,10 +286,14 @@ def generate_response(query: str, context: str) -> str:
     else:
         prompt = f"Question: {query}\n\nPlease answer the question. If you don't have enough information, say so."
 
-    # Generate response
-    response = client.generate(
+    # Generate response using OpenAI Chat Completions API
+    response = client.chat.completions.create(
         model=model,
-        prompt=prompt
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7,
+        max_tokens=1000
     )
 
-    return response['response']
+    return response.choices[0].message.content
