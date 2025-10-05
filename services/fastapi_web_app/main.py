@@ -82,7 +82,8 @@ async def admin(request: Request):
 @app.post("/admin/upload")
 async def upload_documents(files: List[UploadFile] = File(...)):
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        # Increased timeout for vision processing (can take 2-5 minutes with GPU)
+        async with httpx.AsyncClient(timeout=600.0) as client:
             # Prepare files for upload
             upload_files = []
             for file in files:

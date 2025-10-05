@@ -102,6 +102,42 @@ uv sync --upgrade
 - `query_documents()` uses `similarity_search_with_score()` then converts to ChromaDB format for backward compatibility
 - Direct ChromaDB access via `._collection` for deletion/listing
 
+### Vision & Image Description
+
+**Granite Vision Integration** (`services/rag_server/core_logic/vision_config.py`):
+- Uses IBM Granite Vision 3.3-2B model for automatic image description in PDFs
+- Images are detected, described, and integrated into the document markdown
+- Image descriptions are included in RAG context for visual content queries
+- Model downloaded automatically on first use (~5GB)
+
+**Configuration:**
+```yaml
+# In docker-compose.yml
+environment:
+  - ENABLE_PICTURE_DESCRIPTION=true  # Enable/disable vision
+  - PICTURE_DESCRIPTION_PROMPT=Décris cette image en français de manière concise et précise.
+  - PICTURE_AREA_THRESHOLD=0.05  # Min image size (5% of page)
+  - PICTURE_BATCH_SIZE=4  # Parallel processing count
+```
+
+**How it works:**
+1. PDF uploaded → Docling detects images
+2. Granite Vision generates descriptions (uses custom prompt)
+3. Descriptions embedded in markdown: `![Image](img.png)\nDescription: ...`
+4. HybridChunker includes descriptions in relevant chunks
+5. RAG can answer questions about images/diagrams/charts
+
+**Requirements:**
+- Minimum 8GB RAM recommended
+- ~10GB disk space (model + cache)
+- Only works with PDF files
+- First run downloads model (may take 5-10 minutes)
+
+**Performance considerations:**
+- Processing time increases with image count
+- Batch size affects memory usage
+- Can be disabled via `ENABLE_PICTURE_DESCRIPTION=false` for faster processing
+
 ### Prompt Engineering Strategies
 
 **LLM Prompt Construction** (`services/rag_server/core_logic/llm_handler.py`):
@@ -194,6 +230,7 @@ RUN uv sync --extra-index-url https://download.pytorch.org/whl/cpu --index-strat
 **Test Structure:**
 - `test_embeddings.py`: LangChain OpenAIEmbeddings initialization
 - `test_document_processing.py`: Docling parsing + HybridChunker
+- `test_vision_integration.py`: Granite Vision image description
 - `test_chroma_collection.py`: LangChain Chroma wrapper operations
 - `test_llm_integration.py`: OpenAI-compatible API LLM responses
 - `test_document_api.py`, `test_upload_api.py`: FastAPI endpoints
@@ -212,7 +249,8 @@ RUN uv sync --extra-index-url https://download.pytorch.org/whl/cpu --index-strat
 ## Key Files
 
 - `services/rag_server/core_logic/rag_pipeline.py`: Main RAG query flow
-- `services/rag_server/core_logic/document_processor.py`: Docling + HybridChunker
+- `services/rag_server/core_logic/document_processor.py`: Docling + HybridChunker + Vision
+- `services/rag_server/core_logic/vision_config.py`: Granite Vision configuration
 - `services/rag_server/core_logic/chroma_manager.py`: LangChain Chroma wrapper
 - `services/rag_server/core_logic/embeddings.py`: LangChain OpenAIEmbeddings
 - `services/rag_server/main.py`: FastAPI endpoints
@@ -232,3 +270,7 @@ curl https://apigpt.mynumih.fr/v1/models
 **Tests fail with ModuleNotFoundError:** Use `.venv/bin/pytest` directly instead of `uv run pytest` to avoid path issues.
 
 **Embeddings model not found:** Ensure `nomic-embed-text` is available in your OpenAI-compatible API. If not, update `EMBEDDING_MODEL` env var to an available model.
+
+**Vision model download slow:** First run with `ENABLE_PICTURE_DESCRIPTION=true` downloads Granite Vision 3.3-2B (~5GB). Be patient or pre-download the model.
+
+**Out of memory with vision enabled:** Reduce `PICTURE_BATCH_SIZE` or disable vision for large PDFs with many images. Minimum 8GB RAM recommended.

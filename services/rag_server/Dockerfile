@@ -2,6 +2,8 @@
 FROM python:3.12-slim
 
 # Install system dependencies for docling (OCR support)
+# Note: SmolVLM-256M model (~500MB) will be downloaded on first use
+# Ensure sufficient disk space (minimum 5GB recommended)
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-eng \
@@ -16,9 +18,9 @@ WORKDIR /app
 # Copy dependency files
 COPY services/rag_server/pyproject.toml ./
 
-# Install dependencies using uv with CPU-only PyTorch for smaller image
-# Use unsafe-best-match to allow finding best versions across all indexes
-RUN uv sync --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+# Install dependencies using uv with CUDA-enabled PyTorch for GPU acceleration
+# Use CUDA 11.8 compatible PyTorch for NVIDIA GPU support
+RUN uv sync --extra-index-url https://download.pytorch.org/whl/cu118 --index-strategy unsafe-best-match
 
 # Copy application code
 COPY services/rag_server/ ./

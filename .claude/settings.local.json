@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(findstr:*)",
+      "Bash(curl http://localhost:8001/documents/28b9d419-d0a5-4a60-b779-fe141e47755c/chunks)",
+      "Bash(timeout 10 bash -c 'until curl -s http://localhost:8001/health > /dev/null; do sleep 1; done')",
+      "Bash(Select-String -Pattern \"VISION|picture|image|SmolVLM|Granite\" -CaseSensitive:$false)",
+      "Bash(curl http://localhost:8001/documents/958656da-352f-4089-b0cc-869ea479f85e/chunks)",
+      "Bash(curl http://localhost:8001/documents/e31034e4-856a-45ef-a618-313066d6ca84/chunks)",
+      "Bash(curl http://localhost:8001/documents/f1ec81ec-7183-46f5-838b-665563ab9d14/chunks)",
+      "Bash(curl -s http://localhost:8001/documents/f1ec81ec-7183-46f5-838b-665563ab9d14/chunks)",
+      "Bash(python:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

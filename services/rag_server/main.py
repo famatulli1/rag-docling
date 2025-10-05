@@ -101,6 +101,40 @@ async def get_documents():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/documents/{document_id}/chunks")
+async def get_document_chunks(document_id: str):
+    """Get all chunks for a specific document with their full content"""
+    try:
+        collection = get_or_create_collection()
+
+        # Query all chunks for this document
+        results = collection._collection.get(
+            where={"document_id": document_id},
+            include=["documents", "metadatas"]
+        )
+
+        if not results["ids"]:
+            raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+
+        # Format chunks
+        chunks = []
+        for i, chunk_id in enumerate(results["ids"]):
+            chunks.append({
+                "id": chunk_id,
+                "content": results["documents"][i],
+                "metadata": results["metadatas"][i]
+            })
+
+        return {
+            "document_id": document_id,
+            "total_chunks": len(chunks),
+            "chunks": chunks
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/upload")
 async def upload_documents(files: List[UploadFile] = File(...)):
     logger.info(f"[UPLOAD] Upload endpoint called with {len(files)} files")

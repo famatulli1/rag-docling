@@ -3,6 +3,9 @@ from typing import List, Dict
 from langchain_docling import DoclingLoader
 from langchain_docling.loader import ExportType
 from docling.chunking import HybridChunker
+from docling.datamodel.base_models import InputFormat
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from core_logic.vision_config import get_vision_enabled, get_vision_pipeline_options
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,7 +31,25 @@ def process_document(file_path: str) -> str:
         logger.error(f"[DOCLING] {error_msg}")
         raise ValueError(error_msg)
 
-    # Use DoclingLoader with MARKDOWN export to get full document text
+    # For PDFs with vision enabled, use DocumentConverter for image description
+    if extension == '.pdf' and get_vision_enabled():
+        logger.info(f"[DOCLING] PDF with vision enabled - using DocumentConverter")
+        pipeline_options = get_vision_pipeline_options()
+
+        converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(
+                    pipeline_options=pipeline_options,
+                )
+            }
+        )
+
+        result = converter.convert(str(file_path))
+        full_text = result.document.export_to_markdown()
+        logger.info(f"[DOCLING] Extracted {len(full_text)} characters with vision (includes image descriptions)")
+        return full_text
+
+    # Use DoclingLoader with MARKDOWN export for other formats or PDFs without vision
     logger.info(f"[DOCLING] Initializing DoclingLoader with MARKDOWN export")
     loader = DoclingLoader(
         file_path=str(file_path),
@@ -63,7 +84,71 @@ def chunk_document_from_file(file_path: str, chunk_size: int = 500) -> List[Dict
         logger.error(f"[DOCLING] {error_msg}")
         raise ValueError(error_msg)
 
-    # Use DoclingLoader with DOC_CHUNKS for efficient chunking
+    # For PDFs with vision enabled, use DocumentConverter then chunk the result
+    if extension == '.pdf' and get_vision_enabled():
+        logger.info(f"[DOCLING] PDF with vision enabled - using DocumentConverter for chunking")
+        pipeline_options = get_vision_pipeline_options()
+
+        converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(
+                    pipeline_options=pipeline_options,
+                )
+            }
+        )
+
+        result = converter.convert(str(file_path))
+
+        # Log picture elements detected in the document
+        if hasattr(result.document, 'pictures'):
+            logger.info(f"[DOCLING] Document has {len(result.document.pictures)} picture elements")
+
+        full_text = result.document.export_to_markdown()
+        logger.info(f"[DOCLING] Extracted {len(full_text)} characters with vision")
+
+        # Log if images/pictures were found and described
+        image_count = full_text.count('![')
+        logger.info(f"[DOCLING] Found {image_count} image descriptions in markdown")
+        if image_count > 0:
+            # Log first 500 chars to see image descriptions
+            logger.info(f"[DOCLING] Document preview with images: {full_text[:500]}...")
+        else:
+            # Log why no images were found
+            logger.warning(f"[DOCLING] No image descriptions generated despite vision being enabled. Check PICTURE_AREA_THRESHOLD setting.")
+
+        # Use HybridChunker to chunk the vision-enriched markdown
+        chunker = HybridChunker(
+            tokenizer=EMBED_MODEL_TOKENIZER,
+            max_tokens=chunk_size
+        )
+
+        # Chunk the full document text
+        doc_chunks = list(chunker.chunk(result.document))
+        logger.info(f"[DOCLING] HybridChunker created {len(doc_chunks)} chunks from vision-enriched document")
+
+        # Convert to our format
+        chunks = []
+        for i, chunk in enumerate(doc_chunks):
+            text = chunk.text.strip()
+            if text:
+                chunk_preview = text[:80] + "..." if len(text) > 80 else text
+                logger.debug(f"[DOCLING] Chunk {i}: {len(text)} chars - {chunk_preview}")
+
+                # Add metadata indicating if this chunk likely contains image descriptions
+                metadata = {
+                    "chunk_index": i,
+                    "has_vision_content": "![" in text  # Markdown image syntax indicates vision content
+                }
+
+                chunks.append({
+                    'text': text,
+                    'metadata': metadata
+                })
+
+        logger.info(f"[DOCLING] Created {len(chunks)} vision-enriched chunks")
+        return chunks
+
+    # Use DoclingLoader with DOC_CHUNKS for efficient chunking (non-PDF or vision disabled)
     logger.info(f"[DOCLING] Initializing DoclingLoader with DOC_CHUNKS export")
     logger.info(f"[DOCLING] HybridChunker settings: tokenizer={EMBED_MODEL_TOKENIZER}, max_tokens={chunk_size}")
     loader = DoclingLoader(

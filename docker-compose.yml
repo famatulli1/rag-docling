@@ -21,6 +21,8 @@ services:
     build:
       context: .
       dockerfile: ./services/rag_server/Dockerfile
+    ports:
+      - "8001:8001"
     environment:
       - CHROMADB_URL=http://chromadb:8000
       - OPENAI_BASE_URL=https://apigpt.mynumih.fr/v1
@@ -29,6 +31,14 @@ services:
       - LLM_MODEL=jpacifico/Chocolatine-2-14B-Instruct-v2.0.3
       - PROMPT_STRATEGY=balanced  # Options: fast, balanced, precise, comprehensive
       - RESPONSE_LANGUAGE=fr  # Options: fr, en
+      # Vision & Image Description (SmolVLM-256M)
+      - ENABLE_PICTURE_DESCRIPTION=true  # Enable/disable image description
+      - PICTURE_DESCRIPTION_PROMPT=Décris cette image en français en quelques phrases.
+      - PICTURE_AREA_THRESHOLD=0.01  # Minimum image size (1% of page)
+      - PICTURE_BATCH_SIZE=1  # Number of images processed in parallel (reduced for 6GB GPU)
+      # GPU Configuration
+      - CUDA_VISIBLE_DEVICES=0  # Use first GPU for acceleration
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True  # Reduce memory fragmentation
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -38,6 +48,13 @@ services:
       - public
     volumes:
       - ./data/indexed_documents:/app/documents
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   # ChromaDB Vector Database (private network only)
   chromadb:
